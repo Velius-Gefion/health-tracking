@@ -4,9 +4,23 @@ import { collection, getDoc, setDoc, doc} from 'firebase/firestore'
 import { useNavigate } from "react-router-dom";
 import { useState } from "react";
 import { HomeNavbar } from "./home";
-import Nav from "react-bootstrap/Nav";
-import Modal from "react-bootstrap/Modal";
-import Button from "react-bootstrap/Button";
+import { Nav, Modal, Button } from "react-bootstrap";
+
+const ConfirmationModal = ({ show, onClose, title, message }) => (
+    <Modal show={show} onHide={onClose} centered>
+      <Modal.Header closeButton>
+        <Modal.Title>{title}</Modal.Title>
+      </Modal.Header>
+      <Modal.Body>
+        <p>{message}</p>
+      </Modal.Body>
+      <Modal.Footer>
+        <Button variant="primary" onClick={onClose}>
+          Close
+        </Button>
+      </Modal.Footer>
+    </Modal>
+  );
 
 export const Login = () => {
     const [email, setEmail] = useState("");
@@ -194,20 +208,13 @@ export const Register = () => {
                                 </div>
                             </>
                         )}
-                        <Modal show={showConfirmationModal} onHide={handleModalClose} centered>
-                            <Modal.Header closeButton>
-                                <Modal.Title>Registration Successful</Modal.Title>
-                            </Modal.Header>
-                            <Modal.Body>
-                                <p>Your registration was successful!</p>
-                            </Modal.Body>
-                            <Modal.Footer>
-                                <Button variant="primary" onClick={handleModalClose}>
-                                    Close
-                                </Button>
-                            </Modal.Footer>
-                        </Modal>
                     </div>
+                    <ConfirmationModal
+                        show={showConfirmationModal}
+                        onClose={handleModalClose}
+                        title="Registration Successful"
+                        message="Your registration was successful!"
+                    />
                 </div>
             </div>
         </div>

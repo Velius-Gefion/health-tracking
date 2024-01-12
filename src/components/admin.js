@@ -5,9 +5,7 @@ import Modal from "react-bootstrap/Modal";
 import Nav from "react-bootstrap/Nav";
 import React, { useEffect, useState} from 'react';
 import { db } from '../config/firebase';
-import { getDocs, getDoc, collection, addDoc, deleteDoc, updateDoc, doc, where, query} from 'firebase/firestore'
-//import Calendar from 'react-calendar';
-//import 'react-calendar/dist/Calendar.css';
+import { getDocs, getDoc, collection, deleteDoc, doc, where, query} from 'firebase/firestore'
 
 const scrollToTop = () => {
     window.scrollTo({
@@ -21,25 +19,24 @@ const StudentHistoryModal = ({ students, historyModal, handleCloseModal }) => {
 
     useEffect(() => {
         const fetchHistoryData = async () => {
-            try {
-                if (!students.id) {
-                    console.error('Student ID is undefined');
-                    return;
-                }
-
-                const historyQuery = query(
-                    collection(db, 'concerns'),
-                    where('concern_StudentID', '==', students.id)
-                );
-    
-                const historySnapshot = await getDocs(historyQuery);
-    
-                const historyDataArray = historySnapshot.docs.map((doc) => doc.data());
-    
-                setHistoryData(historyDataArray);
-            } catch (error) {
-                console.error('Error fetching history data: ', error);
+        try {
+            if (!students.id) {
+                console.error('Student ID is undefined');
+            return;
             }
+    
+            const historyQuery = query(
+                collection(db, 'concerns'),
+                where('concern_StudentID', '==', students.id)
+            );
+    
+            const historySnapshot = await getDocs(historyQuery);
+            const historyDataArray = historySnapshot.docs.map((doc) => doc.data());
+    
+            setHistoryData(historyDataArray);
+        } catch (error) {
+            console.error('Error fetching history data: ', error);
+        }
         };
     
         if (historyModal) {
@@ -52,15 +49,17 @@ const StudentHistoryModal = ({ students, historyModal, handleCloseModal }) => {
             <Modal.Header closeButton>
             <Modal.Title>{students.id}'s History</Modal.Title>
             </Modal.Header>
-            <Modal.Body style={{ maxHeight: '500px', overflowY: 'auto' }}>
+            <Modal.Body style={{ maxHeight: '400px', overflowY: 'auto' }}>
                 {historyData.length > 0 ? (
                     historyData.filter((concerns) => concerns.concern_StudentID === students.id)
                     .map((concerns, index) => (
                         <div key={index}>
-                            <div className="card">
+                            <div className="card mb-3">
                                 <div className="card-header">
-                                    <p>Date: {concerns.concern_Date}</p>
-                                    <p>Time: {concerns.concern_Time}</p>
+                                    <div className="mt-2">
+                                        <h6><strong>Date:</strong> {concerns.concern_Date}</h6>
+                                        <h6><strong>Time:</strong> {concerns.concern_Time}</h6>
+                                    </div>
                                 </div>
                                 <div className="card-body">
                                     <p>{concerns.concern_Text}</p>
@@ -88,31 +87,32 @@ export const Admin = () => {
     const [showScrollToTop, setShowScrollToTop] = useState(false);
     const [openedHistoryModal, setOpenedHistoryModal] = useState(null);
     const today = new Date();
-const todayDateString = today.toISOString().split('T')[0];
+    const phTimeZone = 'Asia/Manila';
+    const dateOptions = { timeZone: phTimeZone };
+    const formattedDate = new Intl.DateTimeFormat('en-US', {
+        ...dateOptions,
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+    }).format(today);
 
     useEffect(() => {
-        const getStudentList = async () => {
+        const getBothList = async () => {
             try {
-                const data = await getDocs(collection(db, "students"));
-                const filteredData = data.docs.map((doc) => ({ ...doc.data(), id: doc.id }));
-                setStudentList(filteredData);
-            } catch (error) {
-                console.error(error);
-            }
-        };
-    
-        const getConcernList = async () => {
-            try {
-                const data = await getDocs(collection(db, "concerns"));
-                const filteredData = data.docs.map((doc) => ({ ...doc.data(), id: doc.id }));
-                setConcernList(filteredData);
+                const studentData = await getDocs(collection(db, "students"));
+                const concernData = await getDocs(collection(db, "concerns"));
+
+                const filteredStudentData = studentData.docs.map((doc) => ({ ...doc.data(), id: doc.id }));
+                const filteredConcernData = concernData.docs.map((doc) => ({ ...doc.data(), id: doc.id }));
+                
+                setStudentList(filteredStudentData);
+                setConcernList(filteredConcernData);
             } catch (error) {
                 console.error(error);
             }
         };
 
-        getStudentList();
-        getConcernList();
+        getBothList();
     
         const handleScroll = () => {
             const scrolled = window.scrollY > 100;
@@ -139,15 +139,26 @@ const todayDateString = today.toISOString().split('T')[0];
     });
 
     const deleteRecord = async (id) => {
-        const studentsDoc = doc(db, "students", id);
+        const studentsDoc = doc(db, 'students', id);
         await deleteDoc(studentsDoc);
     
         try {
-            const data = await getDocs(collection(db, "students"));
-            const filteredData = data.docs.map((doc) => ({ ...doc.data(), id: doc.id }));
-            setStudentList(filteredData);
+            const studentData = await getDoc(studentsDoc);
+            const student = { ...studentData.data(), id: studentData.id };
+    
+            const concernsQuery = query(collection(db, 'concerns'), where('concern_StudentID', '==', student.id));
+            const concernsData = await getDocs(concernsQuery);
+    
+        await Promise.all(concernsData.docs.map(async (concernDoc) => {
+            const concernId = concernDoc.id;
+            const concernRef = doc(db, 'concerns', concernId);
+            await deleteDoc(concernRef);
+        }));
+    
+            const updatedStudentList = studentList.filter((student) => student.id !== id);
+            setStudentList(updatedStudentList);
         } catch (error) {
-        console.error(error);
+            console.error(error);
         }
     };
 
@@ -172,11 +183,11 @@ const todayDateString = today.toISOString().split('T')[0];
                                 <h3 className="text-center mt-2">Health History</h3>
                             </div>
                             <div className="card-body">
-                                {sortedConcerns.map((concerns, index) => {
-                                    const concernDate = concerns.concern_Date;
-                                    const isToday = concernDate === todayDateString;
-
-                                    return isToday ? (
+                                {sortedConcerns.length > 0 ? (
+                                    sortedConcerns.filter((concerns) => concerns.concern_Date === formattedDate)
+                                    .map((concerns) => {
+                                    const matchingStudent = studentList.find(student => student.id === concerns.concern_StudentID);
+                                    return (
                                         <div className="card mb-3" key={concerns.id}>
                                             <div className="card-header">
                                                 <div className="row mt-2">
@@ -187,8 +198,12 @@ const todayDateString = today.toISOString().split('T')[0];
                                                         <h6><strong>Time: </strong> {concerns.concern_Time}</h6>
                                                     </div>
                                                 </div>
-                                                <h6><strong>Name: </strong>{studentList[index].student_FirstName} {studentList[index].student_MiddleName} {studentList[index].student_LastName}</h6>
-                                                <h6><strong>Number: </strong>{studentList[index].student_MobileNumber}</h6>
+                                                {matchingStudent && (
+                                                    <>
+                                                        <h6><strong>Name: </strong>{`${matchingStudent.student_FirstName} ${matchingStudent.student_MiddleName} ${matchingStudent.student_LastName}`}</h6>
+                                                        <h6><strong>Number: </strong>{matchingStudent.student_MobileNumber}</h6>
+                                                    </>
+                                                )}
                                             </div>
                                             <div className="card-body">
                                                 <p>{concerns.concern_Text}</p>
@@ -199,8 +214,10 @@ const todayDateString = today.toISOString().split('T')[0];
                                                 </div>
                                             </div>
                                         </div>
-                                    ) : null;
-                                })}
+                                    );
+                                })) : (
+                                    <h6 className="text-center mt-2">No history data available.</h6>
+                                )}
                             </div>
                         </div>
                     </div>    
@@ -216,7 +233,8 @@ const todayDateString = today.toISOString().split('T')[0];
                                 </form>
                             </div>
                             <div className="card-body">
-                                {studentList.filter((students) =>
+                                {studentList.length > 0 ? (
+                                studentList.filter((students) =>
                                 `${students.id} ${students.student_FirstName} ${students.student_MiddleName} ${students.student_LastName}`
                                     .toLowerCase()
                                     .includes(searchTerm.toLowerCase())
@@ -244,7 +262,10 @@ const todayDateString = today.toISOString().split('T')[0];
                                         handleCloseModal={handleCloseModal}
                                     />
                                 </div>
-                                ))}
+                                ))):
+                                (
+                                    <h6 className="text-center mt-2">No Students Record Available</h6>
+                                )}
                             </div>
                         </div>
                     </div>

@@ -1,8 +1,8 @@
+import React, { useEffect, useState } from "react";
 import { BrowserRouter as Router, Route, Routes, Navigate } from 'react-router-dom';
 import { Home } from "./components/home";
 import { Login, Register } from "./components/auth";
 import { Admin } from "./components/admin";
-import React, { useEffect, useState } from "react";
 import { auth } from "./config/firebase";
 import { onAuthStateChanged } from 'firebase/auth';
 
@@ -26,7 +26,7 @@ function App() {
   }, []);
 
   const PrivateRoute = ({ element, ...props }) => {
-    const userId = currentUser;
+    const userId = currentUser?.uid;
     
     if (!loggedIn) {
       return <Navigate to="/login" />;
@@ -38,10 +38,10 @@ function App() {
   return (
     <Router>
       <Routes>
-        <Route path="/" exact element={loggedIn ? <Admin/>: <Home />} />
+        <Route path="/" exact element={loggedIn ? <Admin/> : <Home />}/>
         <Route path="/register" element={<Register />} />
         <Route path="/login" element={<Login />} />
-        <Route path="/admin/:userID" element={<PrivateRoute element={<Admin />}/>} />
+        <Route path="/admin/:userID/" element={<PrivateRoute element={<Admin />}/>} />
       </Routes>
     </Router>
   );

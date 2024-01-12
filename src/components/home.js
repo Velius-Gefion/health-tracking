@@ -2,8 +2,8 @@ import Container from "react-bootstrap/Container";
 import Navbar from "react-bootstrap/Navbar";
 import Nav from "react-bootstrap/Nav";
 import { useState } from "react";
-import { collection, getDoc, addDoc, setDoc, doc} from 'firebase/firestore';
-import { auth, db } from "../config/firebase";
+import { collection, getDoc, addDoc, doc} from 'firebase/firestore';
+import { db } from "../config/firebase";
 import Modal from 'react-bootstrap/Modal';
 
 export const HomeNavbar = () => {
@@ -23,59 +23,69 @@ export const HomeNavbar = () => {
     );
 }
 
-export const Home = () =>
-{
-    const [date, setDate] = useState("");
-    const [time, setTime] = useState("");
+const ErrorModal = ({ show, onClose, title, message }) => (
+    <Modal show={show} onHide={onClose} centered>
+      <Modal.Header closeButton>
+        <Modal.Title>{title}</Modal.Title>
+      </Modal.Header>
+      <Modal.Body>{message}</Modal.Body>
+      <Modal.Footer>
+        <button type="button" className="btn btn-primary" onClick={onClose}>
+          Close
+        </button>
+      </Modal.Footer>
+    </Modal>
+  );
+
+export const Home = () => {
     const [studentID, setStudentID] = useState("");
     const [concern, setConcern] = useState("");
     const [confirmationModal, setConfirmationModal] = useState(false);
-    
-
+    const [studentExists, setStudentExists] = useState(true); // Track student existence
+  
     const submitForm = async () => {
-        try {
-            const currentDate = new Date();
-            const formattedDate = currentDate.toISOString().split('T')[0];
-            const formattedTime = currentDate.toLocaleTimeString('en-US', {
-                hour12: true,
-                hour: '2-digit',
-                minute: '2-digit',
-                second: '2-digit',
-              });
-
-            setDate(formattedDate);
-            setTime(formattedTime);
-
-            if (!studentID || !concern) {
-            alert('Please fill in all required fields');
-            return;
-            }
-
-            const studentDocRef = doc(collection(db, "students"), studentID);
-            const docSnapshot = await getDoc(studentDocRef);
-
-            if (!docSnapshot.exists()) {
-                alert(`Student with ID ${studentID} doesn't exist. Please register.`);
-                return;
-            }
-
-            await addDoc(collection(db, "concerns"), {
-                concern_Date: date,
-                concern_Time: time,
-                concern_StudentID: studentID,
-                concern_Text: concern,
-            });
-
-            setConfirmationModal(true);
-        } catch (error) {
-            console.error('Error adding document: ', error);
+      try {
+        if (!studentID || !concern) {
+          alert('Please fill in all required fields');
+          return;
         }
+  
+        const studentDocRef = doc(collection(db, "students"), studentID);
+        const docSnapshot = await getDoc(studentDocRef);
+  
+        if (!docSnapshot.exists()) {
+          setStudentExists(false);
+          return;
+        }
+  
+        const currentDate = new Date();
+        const phTimeZone = 'Asia/Manila';
+        const dateOptions = { timeZone: phTimeZone };
+        const formattedDate = new Intl.DateTimeFormat('en-US', {
+            ...dateOptions,
+            year: 'numeric',
+            month: '2-digit',
+            day: '2-digit',
+        }).format(currentDate);
+        const formattedTime = currentDate.toLocaleTimeString();
+  
+        await addDoc(collection(db, "concerns"), {
+          concern_Date: formattedDate,
+          concern_Time: formattedTime,
+          concern_StudentID: studentID,
+          concern_Text: concern,
+        });
+  
+        setConfirmationModal(true);
+      } catch (error) {
+        console.error('Error adding document: ', error);
+      }
     };
-    
+  
     const handleCloseModal = () => {
-        setConfirmationModal(false);
+      setConfirmationModal(false);
     };
-
+  
     return (
         <div>
             <HomeNavbar/>
@@ -113,6 +123,12 @@ export const Home = () =>
                     </Modal>
                 </div>
             </div>
+            <ErrorModal
+                show={!studentExists}
+                onClose={() => setStudentExists(true)}
+                title="Student Not Found"
+                message={`Student with ID ${studentID} doesn't exist. Please register.`}
+            />
         </div>
     );
 }
