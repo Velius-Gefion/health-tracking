@@ -5,7 +5,9 @@ import Modal from "react-bootstrap/Modal";
 import Nav from "react-bootstrap/Nav";
 import React, { useEffect, useState} from 'react';
 import { db } from '../config/firebase';
-import { getDocs, getDoc, collection, deleteDoc, doc, where, query} from 'firebase/firestore'
+import { getDocs, getDoc, collection, updateDoc, deleteDoc, doc, where, query} from 'firebase/firestore'
+import { auth } from "../config/firebase";
+import { onAuthStateChanged, deleteUser } from 'firebase/auth';
 
 const scrollToTop = () => {
     window.scrollTo({
@@ -14,33 +16,33 @@ const scrollToTop = () => {
     });
 };
 
+const fetchHistoryData = async (students, setHistoryData) => {
+    try {
+        if (!students.id) {
+            console.error('Student ID is undefined');
+            return;
+        }
+  
+        const historyQuery = query(
+            collection(db, 'concerns'),
+            where('concern_StudentID', '==', students.id)
+        );
+    
+        const historySnapshot = await getDocs(historyQuery);
+        const historyDataArray = historySnapshot.docs.map((doc) => doc.data());
+  
+        setHistoryData(historyDataArray);
+    } catch (error) {
+         console.error('Error fetching history data: ', error);
+    }
+};
+  
 const StudentHistoryModal = ({ students, historyModal, handleCloseModal }) => {
     const [historyData, setHistoryData] = useState([]);
-
+  
     useEffect(() => {
-        const fetchHistoryData = async () => {
-        try {
-            if (!students.id) {
-                console.error('Student ID is undefined');
-            return;
-            }
-    
-            const historyQuery = query(
-                collection(db, 'concerns'),
-                where('concern_StudentID', '==', students.id)
-            );
-    
-            const historySnapshot = await getDocs(historyQuery);
-            const historyDataArray = historySnapshot.docs.map((doc) => doc.data());
-    
-            setHistoryData(historyDataArray);
-        } catch (error) {
-            console.error('Error fetching history data: ', error);
-        }
-        };
-    
         if (historyModal) {
-            fetchHistoryData();
+            fetchHistoryData(students, setHistoryData);
         }
     }, [students.id, historyModal]);
 
@@ -81,7 +83,11 @@ const StudentHistoryModal = ({ students, historyModal, handleCloseModal }) => {
 };
 
 export const Admin = () => {
+    const [userType, setUserType] = useState("");
+    const [loggedInStaffId, setLoggedInStaffId] = useState(null);
+
     const [studentList, setStudentList] = useState([])
+    const [staffList, setStaffList] = useState([])
     const [concernList, setConcernList] = useState([])
     const [searchTerm, setSearchTerm] = useState("");
     const [showScrollToTop, setShowScrollToTop] = useState(false);
@@ -97,37 +103,98 @@ export const Admin = () => {
     }).format(today);
 
     useEffect(() => {
-        const getBothList = async () => {
+        const fetchData = async () => {
             try {
-                const studentData = await getDocs(collection(db, "students"));
-                const concernData = await getDocs(collection(db, "concerns"));
-
+                const [studentData, staffData, concernData] = await Promise.all([
+                    getDocs(collection(db, "students")),
+                    getDocs(collection(db, "staffs")),
+                    getDocs(collection(db, "concerns")),
+                ]);
+    
                 const filteredStudentData = studentData.docs.map((doc) => ({ ...doc.data(), id: doc.id }));
+                const filteredStaffsData = staffData.docs.map((doc) => ({ ...doc.data(), id: doc.id }));
                 const filteredConcernData = concernData.docs.map((doc) => ({ ...doc.data(), id: doc.id }));
-                
+    
                 setStudentList(filteredStudentData);
+                setStaffList(filteredStaffsData);
                 setConcernList(filteredConcernData);
             } catch (error) {
                 console.error(error);
             }
         };
-
-        getBothList();
+    
+        fetchData();
     
         const handleScroll = () => {
             const scrolled = window.scrollY > 100;
             setShowScrollToTop(scrolled);
         };
+
+        const unsubscribe = onAuthStateChanged(auth, (user) => {
+            if (user) {
+                setLoggedInStaffId(user.uid);
+            } else {
+                setLoggedInStaffId(null);
+            }
+        });
     
         window.addEventListener('scroll', handleScroll);
     
         return () => {
             window.removeEventListener('scroll', handleScroll);
+            unsubscribe();
         };
     }, []);
 
+    const handleUserTypeChange = (event) => {
+        setUserType(event.target.value);
+    };
+
     const handleCloseModal = () => {
         setOpenedHistoryModal(null)
+    };
+
+    const handleConcernStatus = async (concern) => {
+        try {
+            const concernRef = doc(collection(db, "concerns"), concern.id);
+            const updatedConcernStatus = !concern.concern_Status;
+    
+            await updateDoc(concernRef, {
+                concern_Status: updatedConcernStatus,
+            });
+
+            const concernData = await getDocs(collection(db, "concerns"));    
+            const filteredConcernData = concernData.docs.map((doc) => ({ ...doc.data(), id: doc.id }));    
+            setConcernList(filteredConcernData);
+        }
+        catch (error)
+        {
+            console.error(error);
+        }
+    };
+
+    const handleAccountVerification = async (staff) => {
+        try {
+            if (staff.id === loggedInStaffId) {
+                alert("Cannot deactivate your own account.");
+                return;
+            }
+
+            const staffRef = doc(collection(db, "staffs"), staff.id);
+            const updatedAccountStatus = !staff.staff_Account;
+    
+            await updateDoc(staffRef, {
+                staff_Account: updatedAccountStatus,
+            });
+
+            const staffData = await getDocs(collection(db, "staffs"));    
+            const filteredStaffData = staffData.docs.map((doc) => ({ ...doc.data(), id: doc.id }));    
+            setStaffList(filteredStaffData);
+    
+            alert(`Account verification updated for ${staff.staff_FirstName} ${staff.staff_LastName}`);
+        } catch (error) {
+            console.error('Error updating account verification:', error);
+        }
     };
 
     const sortedConcerns = [...concernList].sort((a, b) => {
@@ -138,25 +205,45 @@ export const Admin = () => {
         return a.concern_Time.localeCompare(b.concern_Time);
     });
 
-    const deleteRecord = async (id) => {
-        const studentsDoc = doc(db, 'students', id);
-        await deleteDoc(studentsDoc);
-    
-        try {
-            const studentData = await getDoc(studentsDoc);
-            const student = { ...studentData.data(), id: studentData.id };
-    
-            const concernsQuery = query(collection(db, 'concerns'), where('concern_StudentID', '==', student.id));
-            const concernsData = await getDocs(concernsQuery);
-    
-        await Promise.all(concernsData.docs.map(async (concernDoc) => {
-            const concernId = concernDoc.id;
-            const concernRef = doc(db, 'concerns', concernId);
-            await deleteDoc(concernRef);
-        }));
-    
-            const updatedStudentList = studentList.filter((student) => student.id !== id);
-            setStudentList(updatedStudentList);
+    const deleteRecord = async (id, collectionName) => {
+        const docRef = doc(db, collectionName, id);        
+
+        try {  
+            if (id === loggedInStaffId) {
+                alert("Cannot delete your own account.");
+                return;
+            }
+
+            if (collectionName === 'staffs') {
+                await deleteUser(id);
+            }
+
+            await deleteDoc(docRef);
+
+            const docData = await getDoc(docRef);
+            const item = { ...docData.data(), id: docData.id };
+
+            if (collectionName == "students")
+            {
+                const concernsQuery = query(collection(db, 'concerns'), where('concern_StudentID', '==', item.id));
+                const concernsData = await getDocs(concernsQuery);
+        
+                await Promise.all(concernsData.docs.map(async (concernDoc) => {
+                    const concernId = concernDoc.id;
+                    const concernRef = doc(db, 'concerns', concernId);
+                    await deleteDoc(concernRef);
+                }));
+            }
+            
+            const updatedList = collectionName === 'students'
+            ? studentList.filter((student) => student.id !== id)
+            : staffList.filter((staff) => staff.id !== id);
+
+            if (collectionName === 'students') {
+                setStudentList(updatedList);
+            } else if (collectionName === 'staffs') {
+                setStaffList(updatedList);
+            }
         } catch (error) {
             console.error(error);
         }
@@ -180,7 +267,9 @@ export const Admin = () => {
                     <div className="col">
                         <div className="card mt-3 mb-3">
                             <div className="card-header">
-                                <h3 className="text-center mt-2">Health History</h3>
+                                <div className="row">
+                                    <h3 className="text-center mt-2">Health History</h3>
+                                </div>
                             </div>
                             <div className="card-body">
                                 {sortedConcerns.length > 0 ? (
@@ -189,7 +278,7 @@ export const Admin = () => {
                                     const matchingStudent = studentList.find(student => student.id === concerns.concern_StudentID);
                                     return (
                                         <div className="card mb-3" key={concerns.id}>
-                                            <div className="card-header">
+                                            <div className={`card-header ${concerns.concern_Status ? 'bg-success' : 'bg-basic'}`}>
                                                 <div className="row mt-2">
                                                     <div className="col">
                                                         <h6><strong>Date: </strong>{concerns.concern_Date}</h6>
@@ -210,7 +299,9 @@ export const Admin = () => {
                                             </div>
                                             <div className="card-footer">
                                                 <div className="d-grid gap-2 d-md-flex justify-content-md-between">
-                                                    <button type="button" className="btn btn-danger" >Mark as Done</button>
+                                                    <button type="button" className="btn btn-secondary" 
+                                                    onClick={() => handleConcernStatus(concerns)}
+                                                    >{concerns.concern_Status ? 'Done' : 'Mark as Done'}</button>
                                                 </div>
                                             </div>
                                         </div>
@@ -224,7 +315,11 @@ export const Admin = () => {
                     <div className="col">
                     <div className="card mt-3 mb-3">
                             <div className="card-header">
-                                <h3 className="text-center mt-2">Student List</h3>
+                                <select className="form-control mt-1 mb-2" value={userType} onChange={handleUserTypeChange}>
+                                    <option className="text-center" disabled selected value="">Pick a List</option>
+                                    <option value="Student" className="text-center">Student List</option>
+                                    <option value="Staff" className="text-center">Staff List</option>
+                                </select>
                                 <form className="d-flex">
                                     <input className="form-control me-2" type="text" placeholder="Search"
                                         value={searchTerm}
@@ -233,38 +328,74 @@ export const Admin = () => {
                                 </form>
                             </div>
                             <div className="card-body">
-                                {studentList.length > 0 ? (
-                                studentList.filter((students) =>
-                                `${students.id} ${students.student_FirstName} ${students.student_MiddleName} ${students.student_LastName}`
-                                    .toLowerCase()
-                                    .includes(searchTerm.toLowerCase())
-                                ).map((students) => (
-                                <div className="card mb-3" key={students.id}>
-                                    <div className="card-header">
-                                        <h6 className="mt-2"><strong>{students.id}</strong></h6>
-                                    </div>
-                                    <div className="card-body">
-                                        <p><strong>Name: </strong>{students.student_FirstName} {students.student_MiddleName} {students.student_LastName}</p>
-                                        <p><strong>Year Level: </strong>{students.student_YearLevel}</p>
-                                        <p><strong>Strand: </strong>{students.student_Strand}</p>
-                                        <p><strong>Number: </strong>{students.student_MobileNumber}</p>
-                                    </div>
-                                    <div className="card-footer">
-                                        <div className="d-grid gap-2 d-md-flex justify-content-md-between">
-                                            <button type="button" className="btn btn-info" onClick={() => setOpenedHistoryModal(students.id)}>Show History</button>
-                                            <button type="button" className="btn btn-primary" onClick={scrollToTop} style={{ display: showScrollToTop ? 'block' : 'none' }}>Top</button>
-                                            <button type="button" className="btn btn-danger" onClick={() => deleteRecord(students.id)} >Delete</button>
+                                {userType === 'Student' && studentList.length > 0 ? (
+                                    studentList
+                                    .filter((students) =>
+                                        `${students.id} ${students.student_FirstName} ${students.student_MiddleName} ${students.student_LastName}`
+                                            .toLowerCase()
+                                            .includes(searchTerm.toLowerCase())
+                                    )
+                                    .map((students) => (
+                                        <div className="card mb-3" key={students.id}>
+                                            <div className="card-header">
+                                                <h6 className="mt-2"><strong>{students.id}</strong></h6>
+                                            </div>
+                                            <div className="card-body">
+                                                <p><strong>Name: </strong>{students.student_FirstName} {students.student_MiddleName} {students.student_LastName}</p>
+                                                <p><strong>Year Level: </strong>{students.student_YearLevel}</p>
+                                                <p><strong>Strand: </strong>{students.student_Strand}</p>
+                                                <p><strong>Number: </strong>{students.student_MobileNumber}</p>
+                                            </div>
+                                            <div className="card-footer">
+                                                <div className="d-grid gap-2 d-md-flex justify-content-md-between">
+                                                    <button type="button" className="btn btn-info" onClick={() => setOpenedHistoryModal(students.id)}>Show History</button>
+                                                    <button type="button" className="btn btn-primary" onClick={scrollToTop} style={{ display: showScrollToTop ? 'block' : 'none' }}>Top</button>
+                                                    <button type="button" className="btn btn-danger" onClick={() => deleteRecord(students.id, 'students')} >Delete</button>
+                                                </div>
+                                            </div>
+                                            <StudentHistoryModal
+                                                students={students}
+                                                historyModal={openedHistoryModal === students.id}
+                                                handleCloseModal={handleCloseModal}
+                                            />
                                         </div>
-                                    </div>
-                                    <StudentHistoryModal
-                                        students={students}
-                                        historyModal={openedHistoryModal === students.id}
-                                        handleCloseModal={handleCloseModal}
-                                    />
-                                </div>
-                                ))):
-                                (
-                                    <h6 className="text-center mt-2">No Students Record Available</h6>
+                                    ))
+                                ) : userType === 'Staff' && staffList.length > 0 ? (
+                                    staffList
+                                    .filter((staffs) =>
+                                        `${staffs.id} ${staffs.staff_FirstName} ${staffs.staff_MiddleName} ${staffs.staff_LastName}`
+                                            .toLowerCase()
+                                            .includes(searchTerm.toLowerCase())
+                                    )
+                                    .map((staffs) => (
+                                        <div className="card mb-3" key={staffs.id}>
+                                            <div className={`card-header ${staffs.staff_Account ? 'bg-success' : 'bg-danger'}`}>
+                                                <h6 className="mt-2"><strong>{staffs.staff_Account ? 'Active' : 'Inactive'}</strong></h6>
+                                            </div>
+                                            <div className="card-body">
+                                                <p><strong>Name: </strong>{staffs.staff_FirstName} {staffs.staff_MiddleName} {staffs.staff_LastName}</p>
+                                                <p><strong>Department: </strong>{staffs.staff_Department}</p>
+                                                <p><strong>Email: </strong>{staffs.staff_Email}</p>
+                                            </div>
+                                            <div className="card-footer">
+                                                <div className="d-grid gap-2 d-md-flex justify-content-md-between">
+                                                    <button
+                                                        type="button"
+                                                        className="btn btn-warning"
+                                                        onClick={() => handleAccountVerification(staffs)}
+                                                    >
+                                                        {staffs.staff_Account ? 'Deactivate' : 'Activate'}
+                                                    </button>
+                                                    <button type="button" className="btn btn-primary" onClick={scrollToTop} style={{ display: showScrollToTop ? 'block' : 'none' }}>Top</button>
+                                                    <button type="button" className="btn btn-danger" onClick={() => deleteRecord(staffs.id, 'staffs')} >Delete</button>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    ))
+                                ) : (
+                                    <h6 className="text-center mt-2">
+                                        No records shown
+                                    </h6>
                                 )}
                             </div>
                         </div>

@@ -3,28 +3,14 @@ import { createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut} fr
 import { collection, getDoc, setDoc, doc} from 'firebase/firestore'
 import { useNavigate } from "react-router-dom";
 import { useState } from "react";
-import { HomeNavbar } from "./home";
-import { Nav, Modal, Button } from "react-bootstrap";
-
-const ConfirmationModal = ({ show, onClose, title, message }) => (
-    <Modal show={show} onHide={onClose} centered>
-      <Modal.Header closeButton>
-        <Modal.Title>{title}</Modal.Title>
-      </Modal.Header>
-      <Modal.Body>
-        <p>{message}</p>
-      </Modal.Body>
-      <Modal.Footer>
-        <Button variant="primary" onClick={onClose}>
-          Close
-        </Button>
-      </Modal.Footer>
-    </Modal>
-  );
+import { HomeNavbar, CustomModal } from "./home";
+import { Nav } from "react-bootstrap";
 
 export const Login = () => {
     const [email, setEmail] = useState("");
     const [password, setPassword] = useState("");
+    const [showErrorModal, setShowErrorModal] = useState(false);
+    const [errorModalMessage, setErrorModalMessage] = useState("");
     const navigate = useNavigate();
 
     const handleLogin = async () => {
@@ -32,16 +18,45 @@ export const Login = () => {
         {
             const userCredentials = await signInWithEmailAndPassword(auth, email, password);
             const userId = userCredentials.user.uid;
-            
-            window.localStorage.setItem('adminUserId', userId);
-            window.localStorage.setItem('isLoggedIn', true);
 
-            navigate('/admin/'+userId);
+            const staffRef = doc(collection(db, "staffs"), userId);
+            const staffSnapshot = await getDoc(staffRef);
+
+            if (staffSnapshot.exists()) {
+                const accountStatus = staffSnapshot.data().staff_Account;
+                
+                if (accountStatus) {
+                    window.localStorage.setItem('adminUserId', userId);
+                    window.localStorage.setItem('isLoggedIn', true);
+    
+                    navigate('/admin/' + userId);
+                } 
+                else {
+                    setShowErrorModal(true);
+                    setErrorModalMessage("Account not activated yet. Please wait for it to be activated.");
+                }
+            } else {
+                setShowErrorModal(true);
+                setErrorModalMessage("Account not found. Please check your credentials.");
+            }
         }
         catch (errr)
         {
-          console.error('Error during login', errr.message);
+            console.error('Error during login', errr.message);
+            if (errr.code === "auth/email-already-in-use") {
+                setShowErrorModal(true);
+                setErrorModalMessage("Email is already in use. Please choose a different email.");
+            }
+
+            if (errr.code === "auth/invalid-credential") {
+                setShowErrorModal(true);
+                setErrorModalMessage("Invalid credentials. Please check your email and password.");
+            }
         }
+    };
+
+    const closeErrorModal = () => {
+        setShowErrorModal(false);
     };
 
     return (
@@ -67,6 +82,12 @@ export const Login = () => {
                     </div>
                 </div>
             </div>
+            <CustomModal
+                show={showErrorModal}
+                onClose={closeErrorModal}
+                title="Error"
+                message={errorModalMessage}
+            />
         </div>
     );
 }
@@ -82,6 +103,11 @@ export const Register = () => {
     const [studentStrand, setStudentStrand] = useState("");
     const [studentMobileNumber, setStudentMobileNumber] = useState("");
     
+    const [staffFirstName, setStaffFirstName] = useState("");
+    const [staffMiddleName, setStaffMiddleName] = useState("");
+    const [staffLastName, setStaffLastName] = useState("");
+    const [staffDepartment, setStaffDepartment] = useState("");
+    const [accountStatus] = useState(false);
     const [email, setEmail] = useState("");
     const [password, setPassword] = useState("");
 
@@ -121,16 +147,29 @@ export const Register = () => {
 
     const handleRegisterAdmin = async () => {
         try {
-            if (!email || !password) {
+            if (!staffFirstName || !staffLastName ||
+                !staffDepartment || !email || !password) {
               alert('Please fill in all required fields');
               return;
             }
-      
-            await createUserWithEmailAndPassword(auth, email, password);
-      
+            
+            const staffCredentials = await createUserWithEmailAndPassword(auth, email, password);
+            const staffId = staffCredentials.user.uid;
+
+            const staffCollectionRef = doc(collection(db, "staffs"), staffId);
+
+            await setDoc(staffCollectionRef, {
+              staff_FirstName: staffFirstName,
+              staff_MiddleName: staffMiddleName || "",
+              staff_LastName: staffLastName,
+              staff_Department: staffDepartment,
+              staff_Email: email,
+              staff_Account: accountStatus,
+            });
+
             setShowConfirmationModal(true);
         } catch (error) {
-        console.error(error);
+            console.error(error);
         }
     };
     
@@ -177,7 +216,7 @@ export const Register = () => {
                                 </div>
                                 <div className="row">
                                     <div className="col">
-                                        <select className="form-control mb-3" onChange={(e) => setStudentYearLevel(e.target.value)}>
+                                        <select className="form-control mb-3" onChange={(e) => setStudentYearLevel(e.target.value) }>
                                             <option className="text-center" disabled selected value="">Year Level</option>
                                             <option value="11">11</option>
                                             <option value="12">12</option>
@@ -201,6 +240,26 @@ export const Register = () => {
                         )}
                         {userType === "Staff" && (
                             <>
+                                <select className="form-control mb-3" onChange={(e) => setStaffDepartment(e.target.value)}>
+                                    <option className="text-center" disabled selected value="">Department</option>
+                                    <option value="STEM">STEM</option>
+                                    <option value="ABM">ABM</option>
+                                    <option value="HUMMS">HUMMS</option>
+                                </select>
+                                <div className="row">
+                                    <div className="col">
+                                        <input type="text" className="form-control mb-3" 
+                                        placeholder="First Name" onChange={(e) => setStaffFirstName(e.target.value)}/>
+                                    </div>
+                                    <div className="col">
+                                        <input type="text" className="form-control mb-3" 
+                                        placeholder="Middle Name" onChange={(e) => setStaffMiddleName(e.target.value)}/>
+                                    </div>
+                                    <div className="col">
+                                        <input type="text" className="form-control mb-3" 
+                                        placeholder="Last Name" onChange={(e) => setStaffLastName(e.target.value)}/>
+                                    </div>
+                                </div>    
                                 <input type="email" className="form-control mb-3" placeholder="Email" onChange={(e) => setEmail(e.target.value)}/>
                                 <input type="password" className="form-control mb-3" placeholder="Password" onChange={(e) => setPassword(e.target.value)}/>
                                 <div className="d-flex justify-content-center align-items-center ">
@@ -209,7 +268,7 @@ export const Register = () => {
                             </>
                         )}
                     </div>
-                    <ConfirmationModal
+                    <CustomModal
                         show={showConfirmationModal}
                         onClose={handleModalClose}
                         title="Registration Successful"
